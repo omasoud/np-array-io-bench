@@ -11,6 +11,7 @@ from timeit import default_timer as timer
 import datetime as dt
 import tempfile
 from pathlib import Path
+import shutil
 import argparse
 import traceback
 import matplotlib.pyplot as plt
@@ -371,7 +372,13 @@ if __name__ == '__main__':
 							get_sys_info()],f)
 
 
-			#TODO delete temps 
+			# Delete temps 
+			for fpath in fpath_cache.values():
+				po=Path(fpath)
+				if po.is_dir(): # one of the zarr formats is a directory
+					shutil.rmtree(po) # maybe replace with po.rmtree() after python 3.10
+				else: # file
+					po.unlink()
 
 		else: # summarize
 			result_filepath = args.summarize
