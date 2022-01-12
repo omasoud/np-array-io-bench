@@ -287,7 +287,7 @@ def get_sys_info():
 
 if __name__ == '__main__':
 
-	print('Numpy Array File I/O Benchmark. By Osama Masoud. January 2022.')
+	print('Numpy Array File I/O Benchmark. By O. Masoud')
 
 	parser = argparse.ArgumentParser(description='Benchmark load/save speeds and summarize results graphically.')
 	group = parser.add_mutually_exclusive_group(required=True)
