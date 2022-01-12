@@ -1,3 +1,5 @@
+# Copyright (c) 2022 O. Masoud
+
 import os
 import gc
 import numpy as np
