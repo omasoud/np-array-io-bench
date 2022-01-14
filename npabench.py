@@ -1,6 +1,7 @@
 # Copyright (c) 2022 O. Masoud
 
 import os
+import sys
 import gc
 import numpy as np
 import pickle
@@ -18,13 +19,52 @@ import matplotlib.pyplot as plt
 import matplotlib
 import cpuinfo
 
-def elapsed():
+def elapsed(reset=True):
 	try:
 		return timer() - elapsed.last_timestamp
 	except:
+		reset=True
 		return None
 	finally:
-		elapsed.last_timestamp = timer()
+		if reset:
+			elapsed.last_timestamp = timer()
+
+class StopWatch():
+	def __init__(self) -> None:
+		self.last_timestamp = timer()
+	def elapsed(self, reset=True):
+		now = timer()
+		diff = now - self.last_timestamp
+		if reset:
+			self.last_timestamp = now
+		return diff
+	
+
+
+def print_on_same_line(*objects,sep=' ',file=sys.stdout):
+	class A:
+		def __init__(self):
+			self.previous_string_length=0
+			self.string=''
+		def write(self,string):
+			#print(f'received "{string}", {[ord(c) for c in string]}')
+			self.string+=string
+		def get_and_reset(self):
+			string_length=len(self.string)
+			erase_padding=''
+			if self.previous_string_length>string_length:
+				erase_padding=' '*(self.previous_string_length-string_length)
+			output=self.string+erase_padding
+			self.previous_string_length=string_length
+			self.string=''
+			return output	 
+	try:
+		print_on_same_line.writer
+	except:
+		print_on_same_line.writer=A()
+		
+	print(*objects, sep=sep, file=print_on_same_line.writer,end='')
+	print(print_on_same_line.writer.get_and_reset(), end='\r', flush=True, file=file)
 
 
 def profile_write(fmt,arr):
@@ -330,7 +370,7 @@ if __name__ == '__main__':
 			uni=np.random.default_rng().random(MAX_SIZE//dtype().itemsize, dtype=dtype)
 			arrays={
 				'uniform': uni,
-				'sparse': uni*(uni<.2)*4 # 80% sparse, rescale to [0,1)
+				'sparse': uni*(uni<.2)*4 # 80% sparse, rescale back to [0,1)
 			}
 
 			def file_or_dir_size(p):
@@ -349,22 +389,106 @@ if __name__ == '__main__':
 			def calc_reps(size_pwr):
 				return min(max(round(1.5**(33-size_pwr)),2),100)
 
+			# return values 0.0 to 1.0 corresponding to the progress achieved by successive inner loops of the main benchmark 
+			def iteration_progress():
+				FUDGE = float(2**19) # adding this, representing a constant overhead, reduces the imbalance in progress rate of change
+				bytes_per_inner_iter=[]
+				_ = [[[[[(lambda v:bytes_per_inner_iter.append(v))(float(2**size_pwr) + FUDGE)
+									for _ in range(2)]							# 1 write and 1 read
+									for _ in range(calc_reps(size_pwr))] 		# reps
+									for _ in range(len(format_rw))]				# formats
+									for size_pwr in range(MAX_PWR+1)]			# MAX_PWR+1
+									for _ in range(len(arrays))]				# arrays
+				a=np.array(bytes_per_inner_iter)
+				yield from np.cumsum(a)/a.sum()
+
+			def time_stream():
+				stopwatch=StopWatch()
+				while True:
+					yield stopwatch.elapsed(reset=False)
+
+			def progress_str(progress_and_time):
+				p, t_elapsed = next(progress_and_time)
+				# p=next(prog)
+				# t_elapsed = stopwatch.elapsed(reset=False)
+				t_remaining = t_elapsed*(1-p)/p
+
+				try: # initialization
+					progress_str.t_remaining_smooth
+				except:
+					progress_str.t_remaining_smooth=t_remaining
+
+				alpha = p*p
+				progress_str.t_remaining_smooth = (1-alpha)*progress_str.t_remaining_smooth + alpha*t_remaining
+				 
+				return (f'{p:7.2%}'
+						f'\t\tElapsed: {dt.timedelta(seconds=round(t_elapsed))}'
+						f'\tRemaining: {dt.timedelta(seconds=round(progress_str.t_remaining_smooth))}'
+						)
+
+
+			def progress_str2(progress_and_time):
+				p, t_elapsed = next(progress_and_time)
+				# p=next(prog)
+				# t_elapsed = stopwatch.elapsed(reset=False)
+
+				per_unit = t_elapsed/p
+
+				try: # initialization
+					progress_str.per_unit_smooth
+				except:
+					progress_str.per_unit_smooth=per_unit
+
+				alpha=p * .05
+
+				progress_str.per_unit_smooth = (1-alpha)*progress_str.per_unit_smooth + alpha*per_unit
+
+				t_remaining = progress_str.per_unit_smooth*(1-p)
+
+				try: # initialization
+					progress_str.t_remaining_smooth
+				except:
+					progress_str.t_remaining_smooth=t_remaining
+
+				progress_str.t_remaining_smooth = (1-alpha)*progress_str.t_remaining_smooth + alpha*t_remaining
+
+				return (f'{p:7.2%}'
+						f'\t\tElapsed: {dt.timedelta(seconds=round(t_elapsed))}'
+						f'\tRemaining: {dt.timedelta(seconds=round(progress_str.t_remaining_smooth))}'
+						)
+
+			def report_progress():
+				s = progress_str(progress_and_time)
+				if step_sw.elapsed(reset=False) > 0.2: #update interval
+					print_on_same_line(s)
+					step_sw.elapsed() # reset				
+
 			print('Running benchmark...')
+			# stopwatch = StopWatch()
+			step_sw = StopWatch()
+			# prog=iteration_progress()
+			progress_and_time = zip(iteration_progress(), time_stream())
+
 			accum = np.full((len(arrays), MAX_PWR+1, len(format_rw), 2, calc_reps(0)),np.nan) # 2 for write&read, 10 for max reps
 			file_size = np.full((len(arrays), MAX_PWR+1, len(format_rw)),np.nan)
 			for ddist,arr in enumerate(arrays.values()):
-				for size_pwr in range(MAX_PWR+1): # 1 byte to 4GB
+				for size_pwr in range(MAX_PWR+1): # 1 byte to 4GB or whatever
 					total_reps = calc_reps(size_pwr)	
-					print(ddist,size_pwr,total_reps)
+#					print(ddist,size_pwr,total_reps)
 					for j,fmt in enumerate(format_rw.keys()):
 						fpath=get_fpath(fmt) # reuse the same file path for each format
-#						for rep in range(min(max(2**(31-size_pwr),4),10)): # some reasonable reps
 						for rep in range(total_reps): # some reasonable reps
 							accum[ddist,size_pwr,j,0,rep] = profile_write(fmt,arr[:2**size_pwr//dtype().itemsize])
-							file_size[ddist,size_pwr,j] = file_or_dir_size(fpath)
-							accum[ddist,size_pwr,j,1,rep] = profile_read(fmt)
+							report_progress()
 
-			#np.savez(result_filepath, accum=accum, file_size=file_size)
+							file_size[ddist,size_pwr,j] = file_or_dir_size(fpath)
+
+							accum[ddist,size_pwr,j,1,rep] = profile_read(fmt)
+							report_progress()
+
+			print_on_same_line()
+
+			print('Saving results...')
 			with open(result_filepath,'wb') as f:
 				pickle.dump([accum,
 							file_size,
@@ -373,6 +497,7 @@ if __name__ == '__main__':
 
 
 			# Delete temps 
+			print('Cleaning up...')
 			for fpath in fpath_cache.values():
 				po=Path(fpath)
 				if po.is_dir(): # one of the zarr formats is a directory
