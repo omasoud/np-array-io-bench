@@ -18,6 +18,7 @@ import traceback
 import matplotlib.pyplot as plt
 import matplotlib
 import cpuinfo
+import re
 
 def elapsed(reset=True):
 	try:
@@ -328,6 +329,77 @@ def get_sys_info():
 	s+=cpuinfo.get_cpu_info()['brand_raw']
 	return s
 
+
+def progress_str(progress_and_time):
+	p, t_elapsed = next(progress_and_time)
+	# p=next(prog)
+	# t_elapsed = stopwatch.elapsed(reset=False)
+	t_remaining = t_elapsed*(1-p)/p
+
+	try: # initialization
+		progress_str.t_remaining_smooth
+	except:
+		progress_str.t_remaining_smooth=t_remaining
+
+	alpha = p*p
+	progress_str.t_remaining_smooth = (1-alpha)*progress_str.t_remaining_smooth + alpha*t_remaining
+		
+	return (f'{p:7.2%}'
+			f'\t\tElapsed: {dt.timedelta(seconds=round(t_elapsed))}'
+			f'\tRemaining: {dt.timedelta(seconds=round(progress_str.t_remaining_smooth))}'
+			)
+
+
+def progress_str2(progress_and_time):
+	p, t_elapsed = next(progress_and_time)
+	# p=next(prog)
+	# t_elapsed = stopwatch.elapsed(reset=False)
+
+	per_unit = t_elapsed/p
+
+	try: # initialization
+		progress_str.per_unit_smooth
+	except:
+		progress_str.per_unit_smooth=per_unit
+
+	alpha=p * .05
+
+	progress_str.per_unit_smooth = (1-alpha)*progress_str.per_unit_smooth + alpha*per_unit
+
+	t_remaining = progress_str.per_unit_smooth*(1-p)
+
+	try: # initialization
+		progress_str.t_remaining_smooth
+	except:
+		progress_str.t_remaining_smooth=t_remaining
+
+	progress_str.t_remaining_smooth = (1-alpha)*progress_str.t_remaining_smooth + alpha*t_remaining
+
+	return (f'{p:7.2%}'
+			f'\t\tElapsed: {dt.timedelta(seconds=round(t_elapsed))}'
+			f'\tRemaining: {dt.timedelta(seconds=round(progress_str.t_remaining_smooth))}'
+			)
+
+def size_str_to_pwr(s):
+	def is_power_of_two(n):
+		return (n != 0) and (n & (n-1) == 0)
+	match = re.fullmatch(r'([0-9]+)([K|M|G|T|P]?B)',s.upper())
+	if match is None:
+		raise ValueError(f'Size needs to be something like 32MB, 1gb, 256KB, 2048B. A power of two number followed by a unit. Given input was "{s}".')
+	num_part = int(match.group(1))
+	if not is_power_of_two(num_part):
+		raise ValueError(f'The numbers needs to be a power of 2. Given input was {s}.')
+	unit_pwr = {'B':0, 'KB':10, 'MB':20, 'GB':30, 'TB':40, 'PB':50}[match.group(2)] # will for sure match due to regex
+
+	return unit_pwr + num_part.bit_length()-1
+
+def pwr_to_size_str(pwr):
+	if pwr<0 or pwr>59:
+		raise ValueError(f'Power {pwr} is out of range.')
+	unit_idx = pwr//10
+	unit=['B','KB','MB','GB','TB','PB'][unit_idx]
+	return f'{2**(pwr-unit_idx*10)}{unit}'
+
 if __name__ == '__main__':
 
 	print('Numpy Array File I/O Benchmark. By O. Masoud')
@@ -406,56 +478,6 @@ if __name__ == '__main__':
 				stopwatch=StopWatch()
 				while True:
 					yield stopwatch.elapsed(reset=False)
-
-			def progress_str(progress_and_time):
-				p, t_elapsed = next(progress_and_time)
-				# p=next(prog)
-				# t_elapsed = stopwatch.elapsed(reset=False)
-				t_remaining = t_elapsed*(1-p)/p
-
-				try: # initialization
-					progress_str.t_remaining_smooth
-				except:
-					progress_str.t_remaining_smooth=t_remaining
-
-				alpha = p*p
-				progress_str.t_remaining_smooth = (1-alpha)*progress_str.t_remaining_smooth + alpha*t_remaining
-				 
-				return (f'{p:7.2%}'
-						f'\t\tElapsed: {dt.timedelta(seconds=round(t_elapsed))}'
-						f'\tRemaining: {dt.timedelta(seconds=round(progress_str.t_remaining_smooth))}'
-						)
-
-
-			def progress_str2(progress_and_time):
-				p, t_elapsed = next(progress_and_time)
-				# p=next(prog)
-				# t_elapsed = stopwatch.elapsed(reset=False)
-
-				per_unit = t_elapsed/p
-
-				try: # initialization
-					progress_str.per_unit_smooth
-				except:
-					progress_str.per_unit_smooth=per_unit
-
-				alpha=p * .05
-
-				progress_str.per_unit_smooth = (1-alpha)*progress_str.per_unit_smooth + alpha*per_unit
-
-				t_remaining = progress_str.per_unit_smooth*(1-p)
-
-				try: # initialization
-					progress_str.t_remaining_smooth
-				except:
-					progress_str.t_remaining_smooth=t_remaining
-
-				progress_str.t_remaining_smooth = (1-alpha)*progress_str.t_remaining_smooth + alpha*t_remaining
-
-				return (f'{p:7.2%}'
-						f'\t\tElapsed: {dt.timedelta(seconds=round(t_elapsed))}'
-						f'\tRemaining: {dt.timedelta(seconds=round(progress_str.t_remaining_smooth))}'
-						)
 
 			def report_progress():
 				s = progress_str(progress_and_time)
