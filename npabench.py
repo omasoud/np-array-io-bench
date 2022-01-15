@@ -6,6 +6,7 @@ import gc
 import numpy as np
 import pickle
 import h5py
+from numpy import ma
 import tables
 import zarr
 from timeit import default_timer as timer
@@ -20,6 +21,9 @@ import matplotlib
 import cpuinfo
 import re
 import webbrowser
+# import mpld3
+from io import BytesIO
+import base64
 
 def elapsed(reset=True):
 	try:
@@ -143,7 +147,7 @@ def relabel_time_axis(ax, yres=1.0):
 	ax.set_yticklabels([f'{s:.4f}' if s<.001 else (f'{s:.3f}' if s<10 else f'{s:.0f}') for s in seconds],fontsize=8,fontname ='Times New Roman')	
 
 
-def summary_plot(accum, data_dist, wr_rd, title):
+def summary_plot_io_time(accum, data_dist, wr_rd, title):
 	data_dist = data_dist if isinstance(data_dist, tuple) else (data_dist,)
 	max_pwr = accum.shape[1]-1
 	y=np.nanmean(accum,axis=-1)[data_dist,:,:,wr_rd].mean(axis=0) # shape (max_pwr,8)
@@ -152,10 +156,7 @@ def summary_plot(accum, data_dist, wr_rd, title):
 	y_max = y_no_outliers.max(axis=1)
 	x=np.broadcast_to(np.array([2**k for k in range(max_pwr+1)])[:,np.newaxis],y.shape)
 
-
-
 	fig=plt.figure(figsize = (12, 8))
-	#plt.gca().xaxis.set_minor_formatter(matplotlib.ticker.NullFormatter())
 	fig.subplots_adjust(
 		top=0.95,
 		bottom=0.05,
@@ -164,7 +165,7 @@ def summary_plot(accum, data_dist, wr_rd, title):
 		hspace=0.2,
 		wspace=0.25
 	)
-	fig.suptitle(title, fontsize=10)
+	fig.suptitle(title, fontsize=14)
 
 	ax1=plt.subplot(211)
 
@@ -172,64 +173,36 @@ def summary_plot(accum, data_dist, wr_rd, title):
 	relabel_size_axis(ax1, max_pwr=max_pwr)
 	relabel_time_axis(ax1)
 	ax1.set_xlim([1,2**max_pwr])
+	ax1.set_ylim([y[0,:].min(), y[max_pwr,:].max()])
 	ax1.set_xlabel('Size',loc='right')
 	ax1.set_ylabel('Sec',loc='top')
 	ax1.legend(list(format_rw.keys()))
 
-	a,b=13,18
-	if max_pwr<b:
-		plt.show()
-		return
-	ax2 = plt.subplot(234)
-	ax2.loglog(x,y)
-	relabel_size_axis(ax2, max_pwr=max_pwr)
-	relabel_time_axis(ax2, yres=.15)
-	# 8KB = 	1024*8 = 	2**13
-	# 256KB = 	1024*256 = 	2**18
-	ax2.set_xlim([2**a,2**b])
-	ax2.set_ylim([min(y_min[a],y_min[b]), max(y_max[a],y_max[b])])
-	ax2.xaxis.set_minor_locator(matplotlib.ticker.NullLocator())
-	ax2.yaxis.set_minor_locator(matplotlib.ticker.NullLocator())
+	def zoomed_plot(a,b,ax,yres):
+		ax.loglog(x,y)
+		relabel_size_axis(ax, max_pwr=max_pwr)
+		relabel_time_axis(ax, yres=yres)
+		ax.set_xlim([2**a,2**b])
+		ax.set_ylim([min(y_min[a],y_min[b]), max(y_max[a],y_max[b])])
+		ax.xaxis.set_minor_locator(matplotlib.ticker.NullLocator())
+		ax.yaxis.set_minor_locator(matplotlib.ticker.NullLocator())
+		if y_no_outliers[a:b+1,:].mask.any():
+			plt.text(0.0, 1.01, 'At least one outlier not shown', fontsize=8, transform=ax.transAxes)
 
+	def make_zoomed_plot(prev,a_size_str,b_size_str,subplot_value,yres):
+		if max_pwr>prev:
+			a,b = size_str_to_pwr(a_size_str), size_str_to_pwr(b_size_str)
+			if max_pwr<b:
+				a,b = max(0, max_pwr - (b-a)), max_pwr
+			zoomed_plot(a,b,plt.subplot(subplot_value),yres=yres)
+			prev=b
+		return prev
 
-	a,b=22,24
-	if max_pwr<b:
-		plt.show()
-		return
-	ax3 = plt.subplot(235)
-	ax3.loglog(x,y)
-	relabel_size_axis(ax3, max_pwr=max_pwr)
-	relabel_time_axis(ax3,yres=.25)
-	# 4MB	22
-	# 16	24
-	ax3.set_xlim([2**a,2**b])
-	ax3.set_ylim([min(y_min[a],y_min[b]), max(y_max[a],y_max[b])])
-	ax3.xaxis.set_minor_locator(matplotlib.ticker.NullLocator())
-	ax3.yaxis.set_minor_locator(matplotlib.ticker.NullLocator())
+	prev = make_zoomed_plot(0,'8kb','256kb',234,0.15)
+	prev = make_zoomed_plot(prev,'4mb','16mb',235,0.25)
+	prev = make_zoomed_plot(prev,'2gb','4gb',236,0.1)
 
-
-	a,b=31,32
-	# if max_pwr<b:
-	# 	plt.show()
-	# 	return
-	if max_pwr<=24:
-		plt.show()
-		return
-	elif max_pwr<b:
-		a,b=max_pwr-1,max_pwr
-
-	ax4 = plt.subplot(236)
-	ax4.loglog(x,y)
-	relabel_size_axis(ax4, max_pwr=max_pwr)
-	relabel_time_axis(ax4, yres=.1)
-	# 2GB	31
-	# 4GB	32	
-	ax4.set_xlim([2**a,2**b])
-	ax4.set_ylim([min(y_min[a],y_min[b]), max(y_max[a],y_max[b])])
-	ax4.xaxis.set_minor_locator(matplotlib.ticker.NullLocator())
-	ax4.yaxis.set_minor_locator(matplotlib.ticker.NullLocator())
-
-	plt.show()
+	return fig
 
 def summary_plot_io_rate(accum):
 	data_dist=(0,1)
@@ -238,7 +211,6 @@ def summary_plot_io_rate(accum):
 	y2=np.nanmean(accum,axis=-1)[data_dist,:,:,1].mean(axis=0) # read time, all arrays
 
 	fig=plt.figure(figsize = (12, 8))
-	#plt.gca().xaxis.set_major_formatter(matplotlib.ticker.NullFormatter())
 	fig.subplots_adjust(
 		top=0.90,
 		bottom=0.05,
@@ -248,7 +220,9 @@ def summary_plot_io_rate(accum):
 		wspace=0.25
 	)
 	x=np.broadcast_to(np.array([2**k for k in range(max_pwr+1)])[:,np.newaxis],y1.shape) # y1 and y2 have the same shape
-	start_pwr=13
+	start_pwr=size_str_to_pwr('8kb')
+	if max_pwr<=size_str_to_pwr('1mb'):
+		start_pwr=0
 
 
 	ax1=plt.subplot(211)
@@ -275,7 +249,7 @@ def summary_plot_io_rate(accum):
 	ax2.set_title(r'read rate')
 	fig.suptitle('IO Rate', fontsize=14)
 
-	plt.show()	
+	return fig
 
 def summary_plot_file_size(file_size):
 	max_pwr = file_size.shape[1]-1
@@ -314,7 +288,7 @@ def summary_plot_file_size(file_size):
 
 	fig.suptitle('File Size', fontsize=14)
 
-	plt.show()	
+	return fig
 
 def get_lib_version_info():
 	s='Library versions:\n'
@@ -406,8 +380,7 @@ def pwr_to_size_str(pwr):
 	unit=['B','KB','MB','GB','TB','PB'][unit_idx]
 	return f'{2**(pwr-unit_idx*10)}{unit}'
 
-
-def display_html_in_tab(s, append_headers=True):
+def add_html_header(s):
 	HTML_PRE = '''
 <!DOCTYPE html>
 <html lang="en">
@@ -427,10 +400,14 @@ def display_html_in_tab(s, append_headers=True):
 </body>
 </html>
 '''	
+	return HTML_PRE+s+HTML_POST
+
+def display_html_in_tab(s, append_headers=True):
 	if append_headers:
-		html_str=HTML_PRE+s+HTML_POST
+		html_str=add_html_header(s)
 	else:
 		html_str=s
+
 	with tempfile.NamedTemporaryFile('w', delete=False, suffix='.html', encoding='utf-8') as f:
 		url = 'file://' + f.name
 		f.write(html_str)
@@ -453,8 +430,13 @@ if __name__ == '__main__':
 					'takes about 90 minutes on a fast computer.')
 	parser.add_argument('--no-browser', action='store_true', help='Do not launch a browser tab to display the results.')
 	parser.add_argument('--save-html-file', action='store', metavar='FILE',  help='If desired, provide filename so that html report gets saved to it.')
+	parser.add_argument('--standalone-html', action='store_true', 
+					help='By default the html will reference generated png files for the figres. If desired, endocded. '
+					'But if desired this option can encode the pngs directly in the html (making it larger but standalone).')
 
 	args = parser.parse_args()
+	if args.standalone_html and args.save_html_file is None:
+		parser.error('Expecting --save-html-file when using --standalone-html')
 
 	try:
 		if not args.summarize_file:
@@ -567,21 +549,50 @@ if __name__ == '__main__':
 			print(sys_info_str)
 			print()
 
-			#TODO Unindent and put in html
-			summary_plot(accum=accum, data_dist=(0,1), wr_rd=0, title='Write speed')
-			summary_plot(accum=accum, data_dist=(0,1), wr_rd=1, title='Read speed')
-			summary_plot_io_rate(accum=accum)
-			summary_plot_file_size(file_size=file_size)
 
-		html_str=''
+		# Outputs
+
+		figs = [
+			summary_plot_io_time(accum=accum, data_dist=(0,1), wr_rd=0, title='Write speed'),
+			summary_plot_io_time(accum=accum, data_dist=(0,1), wr_rd=1, title='Read speed'),
+			summary_plot_io_rate(accum=accum),
+			summary_plot_file_size(file_size=file_size)
+		]
+
+		def fig_to_html_str(fig):
+			img = BytesIO()
+			fig.savefig(img, format='png', bbox_inches='tight')
+			img.seek(0)
+			s = base64.b64encode(img.getvalue()).decode('utf-8')
+			html_str = f'<img src="data:image/png;base64, {s}">'
+			return html_str
+
+		#TODO switch to use mpld3 in the future when it becomes capable of showing figures with the same quality
+		# html_str='\n'.join([mpld3.fig_to_html(fig, no_extras=True) for fig in figs])
+
+		html_str='\n'.join([fig_to_html_str(fig) for fig in figs])
+
 		if not args.no_browser:
 			print('Showing results in browser tab...')
 			display_html_in_tab(html_str,append_headers=True)
 			
-		if args.save_html_file:
-			print(f'Saving report to {args.save_html_file}.')
-			with open(args.save_html_file,'w',encoding='utf-8') as f:
-				f.write(html_str)
+		if args.save_html_file is not None:
+			root, f = os.path.split(args.save_html_file)
+			out_fileprefix = os.path.splitext(f)[0] # remove .html or whatever extension
+			out_filepath = os.path.join(root,out_fileprefix+'.html')
+			if not args.standalone_html:
+				html_str = ''
+				for i,fig in enumerate(figs):
+					png_filename = f'{out_fileprefix}_{i+1}.png'
+					html_str += f'<img src="{png_filename}"/>\n'
+					fig.savefig(os.path.join(root,png_filename))
+
+			print(f'Saving report to {out_filepath}.')
+			with open(out_filepath,'w',encoding='utf-8') as f:
+				f.write(add_html_header(html_str))
+
+		for fig in figs:
+			plt.close(fig) # prevents showing them in jupyter
 
 
 		print()
