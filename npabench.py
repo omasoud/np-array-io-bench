@@ -1,6 +1,7 @@
 # Copyright (c) 2022 O. Masoud
 
 import os
+from platform import version
 import sys
 import gc
 import numpy as np
@@ -24,6 +25,61 @@ import webbrowser
 # import mpld3
 from io import BytesIO
 import base64
+import subprocess
+import json
+import psutil
+import distro
+import platform
+
+def get_powershell_output_object(cmd):
+	result = subprocess.run(['powershell.exe', '-NonInteractive', '-NoProfile',  '-Command', cmd], capture_output=True) # Assuming not needed: '-ExecutionPolicy', 'Unrestricted'
+	if (result.stderr):
+		s_err=result.stderr.decode('utf8',errors='ignore')
+		raise RuntimeError(s_err)
+	out = result.stdout.decode('utf8',errors='ignore')
+	if not out: # empty output
+		return None
+	return json.loads(out)
+
+def get_disk_info():
+	ret = 'No disk info'
+
+	with tempfile.NamedTemporaryFile('wb') as f:
+		filepath = f.name # we just need a name; file will be deleted
+
+	drive = os.path.splitdrive(filepath)[0]
+	if not drive or len(drive)!=2 or drive[1]!=':': # no drive present
+		return ret
+
+	cmd=r'''
+Get-Disk | ForEach-Object { 
+	$disk=$_
+	$disk | 
+		Get-Partition | 
+		Where-Object DriveLetter -eq '<DRIVELETTER>' | 
+		Select-Object DriveLetter, @{n='Type';e={ $disk.BusType }}, @{n='Model';e={ $disk.Model }}
+	} | 
+	ConvertTo-Json
+'''
+
+	cmd = cmd.replace('<DRIVELETTER>',drive[0]) # the first character only
+	try:
+		info = get_powershell_output_object(cmd)
+	except:
+		info = {}
+
+	if info and info is not None:
+		ret = f'drive: {info["DriveLetter"]}; type: {info["Type"]}; model: {info["Model"]}'
+
+	return ret
+
+
+def get_os_info():
+	ret = f'{platform.system()} {platform.release()} ({platform.version()})'
+	info = [distro.name(), distro.version(), distro.codename()]
+	if any(info):
+		ret += ': ' + '-'.join(info)
+	return ret
 
 def elapsed(reset=True):
 	try:
@@ -294,14 +350,17 @@ def get_lib_version_info():
 	s='Library versions:\n'
 	s+=f'numpy:\t{np.version.version}\n'
 	s+=f'pickle:\t{pickle.format_version}\n'
-	s+=f'h5py:\t{h5py.version.version}\n'
+	s+=f'h5py:\t{h5py.version.version} (using hdf5 version: {h5py.version.hdf5_version})\n'
 	s+=f'tables:\t{tables.get_pytables_version()} (using hdf5 version: {tables.hdf5_version})\n'
 	s+=f'zarr:\t{zarr.__version__}\n'
 	return s
 
 def get_sys_info():
 	s='System information:\n'
-	s+=cpuinfo.get_cpu_info()['brand_raw']
+	s+='Processor:\t' + cpuinfo.get_cpu_info()['brand_raw'] + '\n'
+	s+='Disk:\t\t' + get_disk_info() + '\n'
+	s+='Memory:\t\t' + pwr_to_size_str(round(np.log2(psutil.virtual_memory().total))) + '\n'
+	s+='OS:\t\t' + get_os_info() + '\n'
 	return s
 
 # The instance creation time determines when the clock starts ticking
@@ -416,7 +475,7 @@ def display_html_in_tab(s, append_headers=True):
 
 if __name__ == '__main__':
 
-	print('Numpy Array File I/O Benchmark. By O. Masoud')
+	print('Numpy Array File I/O Benchmark. By O. Masoud.\n')
 
 	parser = argparse.ArgumentParser(description='Benchmark load/save speeds and summarize results graphically. A results file is generated and saved. '
 												'The tool can be also run just to read a results file and show the results graphically using the '
@@ -442,10 +501,8 @@ if __name__ == '__main__':
 		if not args.summarize_file:
 			time_str = dt.datetime.now().strftime('%Y_%m_%d__%H_%M_%S')
 			result_filepath = os.path.abspath(f'numpy_array_bench_{time_str}.pkl')
-			print(f'Results will be written to: {result_filepath}')
-			print()
+			print(f'Results will be written to: {result_filepath}\n')
 			print(get_lib_version_info())
-			print()
 			print(get_sys_info())
 
 			#MAX_PWR=32 # 32 for 4 gig; 34 for 16 gig
@@ -454,7 +511,7 @@ if __name__ == '__main__':
 
 			MAX_SIZE = 2**MAX_PWR
 
-			print(f'Will benchmark numpy arrays up to {pwr_to_size_str(MAX_PWR)}.')
+			print(f'Will benchmark numpy arrays with size up to {pwr_to_size_str(MAX_PWR)}.\n')
 			print('Preparing arrays...')
 			dtype = np.float32
 			uni=np.random.default_rng().random(MAX_SIZE//dtype().itemsize, dtype=dtype)
@@ -541,13 +598,10 @@ if __name__ == '__main__':
 			with open(result_filepath,'rb') as f:
 				accum, file_size, lib_version_str, sys_info_str = pickle.load(f)
 
-			print(f'Benchmark results loaded from {result_filepath}')
-			print('Here is some relevant information when it was run:')
-			print()
+			print(f'Benchmark results loaded from {result_filepath}\n')
+			print('The library and system information where it was run:\n')
 			print(lib_version_str)
-			print()
 			print(sys_info_str)
-			print()
 
 
 		# Outputs
