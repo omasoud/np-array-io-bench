@@ -19,6 +19,7 @@ import matplotlib.pyplot as plt
 import matplotlib
 import cpuinfo
 import re
+import webbrowser
 
 def elapsed(reset=True):
 	try:
@@ -405,26 +406,58 @@ def pwr_to_size_str(pwr):
 	unit=['B','KB','MB','GB','TB','PB'][unit_idx]
 	return f'{2**(pwr-unit_idx*10)}{unit}'
 
+
+def display_html_in_tab(s, append_headers=True):
+	HTML_PRE = '''
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Numpy Array I/O Benchmark Summary Report</title>
+<style>
+.monospace {
+  font-family: monospace;
+}
+</style>
+</head>
+<body>	
+'''
+
+	HTML_POST = '''
+</body>
+</html>
+'''	
+	if append_headers:
+		html_str=HTML_PRE+s+HTML_POST
+	else:
+		html_str=s
+	with tempfile.NamedTemporaryFile('w', delete=False, suffix='.html', encoding='utf-8') as f:
+		url = 'file://' + f.name
+		f.write(html_str)
+	webbrowser.open(url)
+
+
 if __name__ == '__main__':
 
 	print('Numpy Array File I/O Benchmark. By O. Masoud')
 
-	parser = argparse.ArgumentParser(description='Benchmark load/save speeds and summarize results graphically.')
-	group = parser.add_mutually_exclusive_group(required=True)
-	group.add_argument('--benchmark', action='store_true', help='Run the benchmark and store the results to a results file.')
-	group.add_argument('--summarize', action='store', help='Generate summary graphs based on provided data file.')
-	parser.add_argument('--max-power', action='store', default=None, type=int, # Won't use defailt here due to error checking below
-					help='Maximum file size (as a power of 2) to benchmark (e.g, 32 means 4GB). Default=10 (1MB). ' 
-					'Caution: large sizes can take a very long time or run out of memory or disk space. 34 (16GB) '
+	parser = argparse.ArgumentParser(description='Benchmark load/save speeds and summarize results graphically. A results file is generated and saved. '
+												'The tool can be also run just to read a results file and show the results graphically using the '
+												'--summarize-file argument.')
+	group = parser.add_mutually_exclusive_group(required=False)
+	group.add_argument('-s','--summarize-file', action='store', metavar='FILE',
+					 help='Only generate summary graphs based on provided results file. This will not run the benchmark.')
+	group.add_argument('--max-size', action='store', default='1MB', 
+					help='Maximum file size (must be a power of 2) to benchmark (e.g, 8MB, 4GB, 128KB). Default: 1MB. ' 
+					'Caution: large sizes can take a very long time or run out of memory or disk space. 16GB '
 					'takes about 90 minutes on a fast computer.')
+	parser.add_argument('--no-browser', action='store_true', help='Do not launch a browser tab to display the results.')
+	parser.add_argument('--save-html-file', action='store', metavar='FILE',  help='If desired, provide filename so that html report gets saved to it.')
 
 	args = parser.parse_args()
 
-	if args.summarize and args.max_power is not None:
-		raise ValueError('--max-power can be specified only with --benchmark.')
-
 	try:
-		if args.benchmark:
+		if not args.summarize_file:
 			time_str = dt.datetime.now().strftime('%Y_%m_%d__%H_%M_%S')
 			result_filepath = os.path.abspath(f'numpy_array_bench_{time_str}.pkl')
 			print(f'Results will be written to: {result_filepath}')
@@ -435,13 +468,11 @@ if __name__ == '__main__':
 
 			#MAX_PWR=32 # 32 for 4 gig; 34 for 16 gig
 			#MAX_PWR=34
-			if args.max_power is None:
-				MAX_PWR=10
-			else:
-				MAX_PWR=args.max_power
+			MAX_PWR = size_str_to_pwr(args.max_size)
 
 			MAX_SIZE = 2**MAX_PWR
 
+			print(f'Will benchmark numpy arrays up to {pwr_to_size_str(MAX_PWR)}.')
 			print('Preparing arrays...')
 			dtype = np.float32
 			uni=np.random.default_rng().random(MAX_SIZE//dtype().itemsize, dtype=dtype)
@@ -519,7 +550,7 @@ if __name__ == '__main__':
 					po.unlink()
 
 		else: # summarize
-			result_filepath = args.summarize
+			result_filepath = args.summarize_file
 			
 			#data = np.load(result_filepath)
 			#accum = data['accum']
@@ -528,17 +559,30 @@ if __name__ == '__main__':
 			with open(result_filepath,'rb') as f:
 				accum, file_size, lib_version_str, sys_info_str = pickle.load(f)
 
-			print('Benchmark results loaded. Here is some relevant information when it was run:')
+			print(f'Benchmark results loaded from {result_filepath}')
+			print('Here is some relevant information when it was run:')
 			print()
 			print(lib_version_str)
 			print()
 			print(sys_info_str)
 			print()
 
+			#TODO Unindent and put in html
 			summary_plot(accum=accum, data_dist=(0,1), wr_rd=0, title='Write speed')
 			summary_plot(accum=accum, data_dist=(0,1), wr_rd=1, title='Read speed')
 			summary_plot_io_rate(accum=accum)
 			summary_plot_file_size(file_size=file_size)
+
+		html_str=''
+		if not args.no_browser:
+			print('Showing results in browser tab...')
+			display_html_in_tab(html_str,append_headers=True)
+			
+		if args.save_html_file:
+			print(f'Saving report to {args.save_html_file}.')
+			with open(args.save_html_file,'w',encoding='utf-8') as f:
+				f.write(html_str)
+
 
 		print()
 		print('Finished.')
