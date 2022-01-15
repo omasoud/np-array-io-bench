@@ -329,56 +329,61 @@ def get_sys_info():
 	s+=cpuinfo.get_cpu_info()['brand_raw']
 	return s
 
-
-def progress_str(progress_and_time):
-	p, t_elapsed = next(progress_and_time)
-	# p=next(prog)
-	# t_elapsed = stopwatch.elapsed(reset=False)
-	t_remaining = t_elapsed*(1-p)/p
-
-	try: # initialization
-		progress_str.t_remaining_smooth
-	except:
-		progress_str.t_remaining_smooth=t_remaining
-
-	alpha = p*p
-	progress_str.t_remaining_smooth = (1-alpha)*progress_str.t_remaining_smooth + alpha*t_remaining
+# The instance creation time determines when the clock starts ticking
+class Progress():	
+	# progress_stream is an iterable that defines the entirety of the steps
+	# 'ema_rem': exponential moving average of remaining time with alpha set to progress squared
+	# 'ema_past_rem': exponential moving average of remaining time which is calculated from
+	#                 an exponential moving average of per-unit past time, with alpha = 0.05
+	def __init__(self, progress_stream, reporting_interval=0.5, method='ema_rem') -> None:
+		self._step_sw = StopWatch()
+		self._reporting_interval = reporting_interval
+		self._progress_and_time = zip(progress_stream, Progress._time_stream())
+		self._t_remaining_smooth = None
+		self._per_unit_smooth = None
+		self._method=method
+		if self._method not in ['ema_rem', 'ema_past_rem']:
+			raise ValueError(f'Unrecognized method: {self._method}.')
 		
-	return (f'{p:7.2%}'
-			f'\t\tElapsed: {dt.timedelta(seconds=round(t_elapsed))}'
-			f'\tRemaining: {dt.timedelta(seconds=round(progress_str.t_remaining_smooth))}'
-			)
+	def _time_stream(): # class function
+		stopwatch=StopWatch()
+		while True:
+			yield stopwatch.elapsed(reset=False)
+
+	def register_progress(self, report_consumer=lambda _:None):
+		self._update()
+		if self._step_sw.elapsed(reset=False) > self._reporting_interval: #update interval
+			self._step_sw.elapsed() # reset	
+			report_consumer(self._progress_str)
+
+	@property
+	def _progress_str(self):
+		return (f'{self._progress_value:7.2%}'
+				f'\t\tElapsed: {dt.timedelta(seconds=round(self._t_elapsed))}'
+				f'\tRemaining: {dt.timedelta(seconds=round(self._t_remaining_smooth))}'
+				)		
+		
+	def _update(self):
+		self._progress_value, self._t_elapsed = next(self._progress_and_time)
+		p=self._progress_value # shorthand 
+		per_unit = self._t_elapsed/p
+
+		if self._method=='ema_past_rem':
+			alpha=p * .05
+			if self._per_unit_smooth is None:
+				self._per_unit_smooth = per_unit
+			self._per_unit_smooth = (1-alpha)*self._per_unit_smooth + alpha*per_unit
+			t_remaining = self._per_unit_smooth*(1-p)
+		else:
+			alpha = p*p
+			t_remaining = per_unit*(1-p)	
+
+		if self._t_remaining_smooth is None:
+			self._t_remaining_smooth=t_remaining
+
+		self._t_remaining_smooth = (1-alpha)*self._t_remaining_smooth + alpha*t_remaining
 
 
-def progress_str2(progress_and_time):
-	p, t_elapsed = next(progress_and_time)
-	# p=next(prog)
-	# t_elapsed = stopwatch.elapsed(reset=False)
-
-	per_unit = t_elapsed/p
-
-	try: # initialization
-		progress_str.per_unit_smooth
-	except:
-		progress_str.per_unit_smooth=per_unit
-
-	alpha=p * .05
-
-	progress_str.per_unit_smooth = (1-alpha)*progress_str.per_unit_smooth + alpha*per_unit
-
-	t_remaining = progress_str.per_unit_smooth*(1-p)
-
-	try: # initialization
-		progress_str.t_remaining_smooth
-	except:
-		progress_str.t_remaining_smooth=t_remaining
-
-	progress_str.t_remaining_smooth = (1-alpha)*progress_str.t_remaining_smooth + alpha*t_remaining
-
-	return (f'{p:7.2%}'
-			f'\t\tElapsed: {dt.timedelta(seconds=round(t_elapsed))}'
-			f'\tRemaining: {dt.timedelta(seconds=round(progress_str.t_remaining_smooth))}'
-			)
 
 def size_str_to_pwr(s):
 	def is_power_of_two(n):
@@ -474,22 +479,8 @@ if __name__ == '__main__':
 				a=np.array(bytes_per_inner_iter)
 				yield from np.cumsum(a)/a.sum()
 
-			def time_stream():
-				stopwatch=StopWatch()
-				while True:
-					yield stopwatch.elapsed(reset=False)
-
-			def report_progress():
-				s = progress_str(progress_and_time)
-				if step_sw.elapsed(reset=False) > 0.2: #update interval
-					print_on_same_line(s)
-					step_sw.elapsed() # reset				
-
 			print('Running benchmark...')
-			# stopwatch = StopWatch()
-			step_sw = StopWatch()
-			# prog=iteration_progress()
-			progress_and_time = zip(iteration_progress(), time_stream())
+			progress = Progress(progress_stream=iteration_progress(), reporting_interval=0.2, method='ema_rem')
 
 			accum = np.full((len(arrays), MAX_PWR+1, len(format_rw), 2, calc_reps(0)),np.nan) # 2 for write&read, 10 for max reps
 			file_size = np.full((len(arrays), MAX_PWR+1, len(format_rw)),np.nan)
@@ -501,12 +492,12 @@ if __name__ == '__main__':
 						fpath=get_fpath(fmt) # reuse the same file path for each format
 						for rep in range(total_reps): # some reasonable reps
 							accum[ddist,size_pwr,j,0,rep] = profile_write(fmt,arr[:2**size_pwr//dtype().itemsize])
-							report_progress()
+							progress.register_progress(report_consumer=print_on_same_line)
 
 							file_size[ddist,size_pwr,j] = file_or_dir_size(fpath)
 
 							accum[ddist,size_pwr,j,1,rep] = profile_read(fmt)
-							report_progress()
+							progress.register_progress(report_consumer=print_on_same_line)
 
 			print_on_same_line()
 
