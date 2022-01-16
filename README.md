@@ -38,6 +38,13 @@ optional arguments:
 ```
 pip install -r requirements.txt
 ```
+If using conda: <br/>
+<sub>*(normally `requirements.txt` can also be used here as well but `tables` has a different name on conda (`pytables`); hence, the `yml` file)*</sub>
+```
+conda activate base
+conda env create --name npabench python=3.9 --file environment.yml
+conda activate npabench
+```
 ## Example
 ```
 python npabench.py --max-size 16mb
