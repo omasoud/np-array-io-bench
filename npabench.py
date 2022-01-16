@@ -1,15 +1,12 @@
 # Copyright (c) 2022 O. Masoud
 
 import os
-from platform import version
 import sys
 import gc
 import functools
 import numpy as np
 import pickle
 import h5py
-from numpy import ma
-from numpy import lib
 import tables
 import zarr
 from timeit import default_timer as timer
@@ -24,7 +21,6 @@ import matplotlib
 import cpuinfo
 import re
 import webbrowser
-# import mpld3
 from io import BytesIO
 import base64
 import subprocess
@@ -371,6 +367,29 @@ def get_sys_info():
 		'OS' : get_os_info()
 	}
 
+def view_on_github_svg():
+	return r'''
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="122" height="20">
+	<linearGradient id="b" x2="0" y2="100%">
+		<stop offset="0" stop-color="#bbb" stop-opacity=".1" />
+		<stop offset="1" stop-opacity=".1" />
+	</linearGradient>
+	<clipPath id="a">
+		<rect width="122" height="20" rx="3" fill="#fff" />
+	</clipPath>
+	<g clip-path="url(#a)">
+		<path fill="#2f363d" d="M0 0h25v20H0z" />
+		<path fill="#586069" d="M25 0h97v20H25z" />
+		<path fill="url(#b)" d="M0 0h122v20H0z" />
+	</g>
+	<g fill="#fff" text-anchor="middle" font-family="DejaVu Sans,Verdana,Geneva,sans-serif" font-size="110">
+		<image x="5" y="3" width="14" height="14"
+			xlink:href="data:image/svg+xml;base64,PHN2ZyBmaWxsPSJ3aGl0ZXNtb2tlIiByb2xlPSJpbWciIHZpZXdCb3g9IjAgMCAyNCAyNCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48dGl0bGU+R2l0SHViIGljb248L3RpdGxlPjxwYXRoIGQ9Ik0xMiAuMjk3Yy02LjYzIDAtMTIgNS4zNzMtMTIgMTIgMCA1LjMwMyAzLjQzOCA5LjggOC4yMDUgMTEuMzg1LjYuMTEzLjgyLS4yNTguODItLjU3NyAwLS4yODUtLjAxLTEuMDQtLjAxNS0yLjA0LTMuMzM4LjcyNC00LjA0Mi0xLjYxLTQuMDQyLTEuNjFDNC40MjIgMTguMDcgMy42MzMgMTcuNyAzLjYzMyAxNy43Yy0xLjA4Ny0uNzQ0LjA4NC0uNzI5LjA4NC0uNzI5IDEuMjA1LjA4NCAxLjgzOCAxLjIzNiAxLjgzOCAxLjIzNiAxLjA3IDEuODM1IDIuODA5IDEuMzA1IDMuNDk1Ljk5OC4xMDgtLjc3Ni40MTctMS4zMDUuNzYtMS42MDUtMi42NjUtLjMtNS40NjYtMS4zMzItNS40NjYtNS45MyAwLTEuMzEuNDY1LTIuMzggMS4yMzUtMy4yMi0uMTM1LS4zMDMtLjU0LTEuNTIzLjEwNS0zLjE3NiAwIDAgMS4wMDUtLjMyMiAzLjMgMS4yMy45Ni0uMjY3IDEuOTgtLjM5OSAzLS40MDUgMS4wMi4wMDYgMi4wNC4xMzggMyAuNDA1IDIuMjgtMS41NTIgMy4yODUtMS4yMyAzLjI4NS0xLjIzLjY0NSAxLjY1My4yNCAyLjg3My4xMiAzLjE3Ni43NjUuODQgMS4yMyAxLjkxIDEuMjMgMy4yMiAwIDQuNjEtMi44MDUgNS42MjUtNS40NzUgNS45Mi40Mi4zNi44MSAxLjA5Ni44MSAyLjIyIDAgMS42MDYtLjAxNSAyLjg5Ni0uMDE1IDMuMjg2IDAgLjMxNS4yMS42OS44MjUuNTdDMjAuNTY1IDIyLjA5MiAyNCAxNy41OTIgMjQgMTIuMjk3YzAtNi42MjctNS4zNzMtMTItMTItMTIiLz48L3N2Zz4=" />
+		<text x="735" y="150" fill="#010101" fill-opacity=".3" transform="scale(.1)" textLength="870">View On
+			GitHub</text><text x="735" y="140" transform="scale(.1)" textLength="870">View On GitHub</text>
+	</g>
+</svg>	
+'''
 
 def pretty_info_str(info, title, as_html):
 	s=''
@@ -492,7 +511,18 @@ table td:first-child {
 <body>	
 '''
 
-	HTML_POST = '''
+	HTML_POST = f'''
+<br>
+<div class="monospace" style="font-size:11px;">
+<br>
+<a href="https://github.com/omasoud/np-array-io-bench">
+{view_on_github_svg()}
+</a>
+<br>
+Copyright (c) 2022 O. Masoud
+<br>
+<br>
+</div>
 </body>
 </html>
 '''	
