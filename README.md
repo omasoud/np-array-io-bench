@@ -1,7 +1,7 @@
 # np-array-io-bench
 Tool for benchmarking the saving and loading speed of numpy arrays
 
-<br/><br/>
+
 ### Usage
 ```
 usage: npabench.py [-h] [-s FILE | --max-size MAX_SIZE] [--no-browser]
@@ -32,7 +32,16 @@ optional arguments:
   --notebook            Plot results in Jupyter Notebook.
 ```
 
-<br/><br/>
+
+
+## Installation
+```
+pip install -r requirements.txt
+```
+## Example
+```
+python npabench.py --max-size 16mb
+```
 
 ## Benchmark Result:
 
