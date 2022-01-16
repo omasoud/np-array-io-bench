@@ -9,6 +9,7 @@ import numpy as np
 import pickle
 import h5py
 from numpy import ma
+from numpy import lib
 import tables
 import zarr
 from timeit import default_timer as timer
@@ -31,6 +32,7 @@ import json
 import psutil
 import distro
 import platform
+import html
 
 def get_powershell_output_object(cmd):
 	result = subprocess.run(['powershell.exe', '-NonInteractive', '-NoProfile',  '-Command', cmd], capture_output=True) # Assuming not needed: '-ExecutionPolicy', 'Unrestricted'
@@ -351,29 +353,47 @@ def summary_plot_file_size(file_size):
 	return fig
 
 def get_lib_version_info():
-	s='Library versions:\n'
-	s+=f'numpy:\t{np.version.version}\n'
-	s+=f'pickle:\t{pickle.format_version}\n'
-	s+=f'h5py:\t{h5py.version.version} (using hdf5 version: {h5py.version.hdf5_version})\n'
-	s+=f'tables:\t{tables.get_pytables_version()} (using hdf5 version: {tables.hdf5_version})\n'
-	s+=f'zarr:\t{zarr.__version__}\n'
-	return s
+	return {
+		'numpy' : f'{np.version.version}',
+		'pickle' : f'{pickle.format_version}',
+		'h5py' : f'{h5py.version.version} (using hdf5 version: {h5py.version.hdf5_version})',
+		'tables' : f'{tables.get_pytables_version()} (using hdf5 version: {tables.hdf5_version})',
+		'zarr' : f'{zarr.__version__}'
+	}
+
 
 @functools.lru_cache(maxsize=1) # no need to repopulate
-def get_sys_info(as_html=False):
+def get_sys_info():
+	return {
+		'Processor' : cpuinfo.get_cpu_info()['brand_raw'],
+		'Disk' : get_disk_info(),
+		'Memory' : pwr_to_size_str(round(np.log2(psutil.virtual_memory().total))),
+		'OS' : get_os_info()
+	}
+
+
+def pretty_info_str(info, title, as_html):
 	s=''
+	tab=''
 	if as_html: s += '<div class="monospace">\n'
-	s+='System information:\n'
-	if as_html: s += '<br>\n'
-	s+='Processor:\t' + cpuinfo.get_cpu_info()['brand_raw'] + '\n'
-	if as_html: s += '<br>\n'
-	s+='Disk:\t\t' + get_disk_info() + '\n'
-	if as_html: s += '<br>\n'
-	s+='Memory:\t\t' + pwr_to_size_str(round(np.log2(psutil.virtual_memory().total))) + '\n'
-	if as_html: s += '<br>\n'
-	s+='OS:\t\t' + get_os_info() + '\n'
-	if as_html: s += '</div>\n'
-	return s
+	s+=f'{title}:\n'
+	if as_html: s += '<table>'
+	for k,v in info.items():
+		if as_html: s+='<tr><td>'
+		s+=f'{k+":":16}'
+		if as_html: s+='</td><td>'
+		s+=f'{v}\n'
+		if as_html: s += '</td></tr>\n'
+	if as_html: s += '</table></div>\n'
+	return s	
+
+
+def pretty_lib_version_info_str(libinfo, as_html=False):
+	return pretty_info_str(libinfo, title='Library versions', as_html=as_html)
+
+def pretty_sys_info_str(sysinfo, as_html=False):
+	return pretty_info_str(sysinfo, title='System information', as_html=as_html)
+
 
 # The instance creation time determines when the clock starts ticking
 class Progress():	
@@ -462,6 +482,11 @@ def add_html_header(s):
 .monospace {
   font-family: monospace;
 }
+table td:first-child {
+  width: 8em;
+  min-width: 8em;
+  max-width: 8em;
+}
 </style>
 </head>
 <body>	
@@ -515,8 +540,11 @@ if __name__ == '__main__':
 			time_str = dt.datetime.now().strftime('%Y_%m_%d__%H_%M_%S')
 			result_filepath = os.path.abspath(f'numpy_array_bench_{time_str}.pkl')
 			print(f'Results will be written to: {result_filepath}\n')
-			print(get_lib_version_info())
-			print(get_sys_info())
+			libinfo = get_lib_version_info()
+			print(pretty_lib_version_info_str(libinfo))
+			sysinfo = get_sys_info()
+			print(pretty_sys_info_str(sysinfo))
+			cmd_str = ' '.join([os.path.basename(sys.argv[0])]+sys.argv[1:])
 
 			#MAX_PWR=32 # 32 for 4 gig; 34 for 16 gig
 			#MAX_PWR=34
@@ -588,8 +616,9 @@ if __name__ == '__main__':
 			with open(result_filepath,'wb') as f:
 				pickle.dump([accum,
 							file_size,
-							get_lib_version_info(),
-							get_sys_info()],f)
+							libinfo,
+							sysinfo,
+							cmd_str],f)
 
 
 			# Delete temps 
@@ -609,12 +638,14 @@ if __name__ == '__main__':
 			#file_size = data['file_size']
 
 			with open(result_filepath,'rb') as f:
-				accum, file_size, lib_version_str, sys_info_str = pickle.load(f)
+				accum, file_size, libinfo, sysinfo, cmd_str = pickle.load(f)
 
 			print(f'Benchmark results loaded from {result_filepath}\n')
 			print('The library and system information where it was run:\n')
-			print(lib_version_str)
-			print(sys_info_str)
+			print(pretty_lib_version_info_str(libinfo))
+			print(pretty_sys_info_str(sysinfo))
+			print(f'This result was generated with command line: {cmd_str}\n')
+
 
 
 		# Outputs
@@ -637,9 +668,18 @@ if __name__ == '__main__':
 		#TODO switch to use mpld3 in the future when it becomes capable of showing figures with the same quality
 		# html_str='\n'.join([mpld3.fig_to_html(fig, no_extras=True) for fig in figs])
 
+		def html_run_info_str(libinfo,sysinfo,cmd_str):
+			s=''
+			s+=pretty_lib_version_info_str(libinfo, as_html=True)
+			s+='<br>'
+			s+=pretty_sys_info_str(sysinfo,as_html=True)
+			s+='<br>'
+			s+=f'<div class="monospace">This result was generated with command line: <b>{html.escape(cmd_str)}</b></div>\n'
+			return s
+
 		html_str='\n'.join([fig_to_html_str(fig) for fig in figs])
-		html_str+=get_sys_info(as_html=True)
-		
+		html_str += html_run_info_str(libinfo,sysinfo,cmd_str)
+
 		if not args.no_browser:
 			print('Showing results in browser tab...')
 			display_html_in_tab(html_str,append_headers=True)
@@ -654,7 +694,7 @@ if __name__ == '__main__':
 					png_filename = f'{out_fileprefix}_{i+1}.png'
 					html_str += f'<img src="{png_filename}"/>\n'
 					fig.savefig(os.path.join(root,png_filename))
-				html_str+=get_sys_info(as_html=True)
+				html_str += html_run_info_str(libinfo,sysinfo,cmd_str)
 
 			print(f'Saving report to {out_filepath}.')
 			with open(out_filepath,'w',encoding='utf-8') as f:

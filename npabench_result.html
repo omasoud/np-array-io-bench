@@ -1,0 +1,50 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Numpy Array I/O Benchmark Summary Report</title>
+<style>
+.monospace {
+  font-family: monospace;
+}
+table td:first-child {
+  width: 8em;
+  min-width: 8em;
+  max-width: 8em;
+}
+</style>
+</head>
+<body>	
+<img src="npabench_result_1.png"/>
+<img src="npabench_result_2.png"/>
+<img src="npabench_result_3.png"/>
+<img src="npabench_result_4.png"/>
+<div class="monospace">
+Library versions:
+<table><tr><td>numpy:          </td><td>1.22.0
+</td></tr>
+<tr><td>pickle:         </td><td>4.0
+</td></tr>
+<tr><td>h5py:           </td><td>3.6.0 (using hdf5 version: 1.12.1)
+</td></tr>
+<tr><td>tables:         </td><td>3.6.1 (using hdf5 version: 1.12.1)
+</td></tr>
+<tr><td>zarr:           </td><td>2.10.3
+</td></tr>
+</table></div>
+<br><div class="monospace">
+System information:
+<table><tr><td>Processor:      </td><td>AMD Ryzen 9 5950X 16-Core Processor
+</td></tr>
+<tr><td>Disk:           </td><td>drive: C; type: NVMe; model: WD_BLACK SN850 1TB
+</td></tr>
+<tr><td>Memory:         </td><td>128GB
+</td></tr>
+<tr><td>OS:             </td><td>Windows 10 (10.0.19044)
+</td></tr>
+</table></div>
+<br><div class="monospace">This result was generated with command line: <b>npabench.py --max-size 16gb --no-browser --save-html-file npabench_result.html</b></div>
+
+</body>
+</html>
