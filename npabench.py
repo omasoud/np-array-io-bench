@@ -4,6 +4,7 @@ import os
 from platform import version
 import sys
 import gc
+import functools
 import numpy as np
 import pickle
 import h5py
@@ -230,6 +231,9 @@ def summary_plot_io_time(accum, data_dist, wr_rd, title):
 	relabel_time_axis(ax1)
 	ax1.set_xlim([1,2**max_pwr])
 	ax1.set_ylim([y[0,:].min(), y[max_pwr,:].max()])
+	#xaxis/yaxis.set_minor_formatter(matplotlib.ticker.NullFormatter()) unlikely needed
+	ax1.xaxis.set_minor_locator(matplotlib.ticker.NullLocator())
+	ax1.yaxis.set_minor_locator(matplotlib.ticker.NullLocator())
 	ax1.set_xlabel('Size',loc='right')
 	ax1.set_ylabel('Sec',loc='top')
 	ax1.legend(list(format_rw.keys()))
@@ -355,12 +359,20 @@ def get_lib_version_info():
 	s+=f'zarr:\t{zarr.__version__}\n'
 	return s
 
-def get_sys_info():
-	s='System information:\n'
+@functools.lru_cache(maxsize=1) # no need to repopulate
+def get_sys_info(as_html=False):
+	s=''
+	if as_html: s += '<div class="monospace">\n'
+	s+='System information:\n'
+	if as_html: s += '<br>\n'
 	s+='Processor:\t' + cpuinfo.get_cpu_info()['brand_raw'] + '\n'
+	if as_html: s += '<br>\n'
 	s+='Disk:\t\t' + get_disk_info() + '\n'
+	if as_html: s += '<br>\n'
 	s+='Memory:\t\t' + pwr_to_size_str(round(np.log2(psutil.virtual_memory().total))) + '\n'
+	if as_html: s += '<br>\n'
 	s+='OS:\t\t' + get_os_info() + '\n'
+	if as_html: s += '</div>\n'
 	return s
 
 # The instance creation time determines when the clock starts ticking
@@ -492,6 +504,7 @@ if __name__ == '__main__':
 	parser.add_argument('--standalone-html', action='store_true', 
 					help='By default the html will reference generated png files for the figres. If desired, endocded. '
 					'But if desired this option can encode the pngs directly in the html (making it larger but standalone).')
+	parser.add_argument('--notebook', action='store_true', help='Plot results in Jupyter Notebook.')
 
 	args = parser.parse_args()
 	if args.standalone_html and args.save_html_file is None:
@@ -625,7 +638,8 @@ if __name__ == '__main__':
 		# html_str='\n'.join([mpld3.fig_to_html(fig, no_extras=True) for fig in figs])
 
 		html_str='\n'.join([fig_to_html_str(fig) for fig in figs])
-
+		html_str+=get_sys_info(as_html=True)
+		
 		if not args.no_browser:
 			print('Showing results in browser tab...')
 			display_html_in_tab(html_str,append_headers=True)
@@ -640,10 +654,14 @@ if __name__ == '__main__':
 					png_filename = f'{out_fileprefix}_{i+1}.png'
 					html_str += f'<img src="{png_filename}"/>\n'
 					fig.savefig(os.path.join(root,png_filename))
+				html_str+=get_sys_info(as_html=True)
 
 			print(f'Saving report to {out_filepath}.')
 			with open(out_filepath,'w',encoding='utf-8') as f:
 				f.write(add_html_header(html_str))
+
+		if args.notebook:
+			plt.show()
 
 		for fig in figs:
 			plt.close(fig) # prevents showing them in jupyter
