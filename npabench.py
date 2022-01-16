@@ -299,7 +299,7 @@ def summary_plot_io_rate(accum):
 	relabel_size_axis(ax2, max_pwr=max_pwr, start_pwr=start_pwr)
 	ax2.set_xlim([2**start_pwr,2**max_pwr])
 	ax2.xaxis.set_minor_locator(matplotlib.ticker.NullLocator())
-	ax2.set_yticks(np.arange(0,5.5,.5))
+	#ax2.set_yticks(np.arange(0,5.5,.5))
 	ax2.grid(axis='y')
 	ax2.set_xlabel('Size',loc='right')
 	ax2.set_title(r'read rate')
