@@ -26,9 +26,9 @@ optional arguments:
                         If desired, provide filename so that html report gets
                         saved to it.
   --standalone-html     By default the html will reference generated png files
-                        for the figres. If desired, endocded. But if desired
-                        this option can encode the pngs directly in the html
-                        (making it larger but standalone).
+                        for the figures. But if desired this option can encode
+                        the pngs directly in the html (making it larger but
+                        standalone).                        
   --notebook            Plot results in Jupyter Notebook.
 ```
 

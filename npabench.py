@@ -557,7 +557,7 @@ if __name__ == '__main__':
 	parser.add_argument('--no-browser', action='store_true', help='Do not launch a browser tab to display the results.')
 	parser.add_argument('--save-html-file', action='store', metavar='FILE',  help='If desired, provide filename so that html report gets saved to it.')
 	parser.add_argument('--standalone-html', action='store_true', 
-					help='By default the html will reference generated png files for the figres. If desired, endocded. '
+					help='By default the html will reference generated png files for the figures. '
 					'But if desired this option can encode the pngs directly in the html (making it larger but standalone).')
 	parser.add_argument('--notebook', action='store_true', help='Plot results in Jupyter Notebook.')
 
