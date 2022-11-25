@@ -134,3 +134,6 @@ dmypy.json
 
 # Temp copies
 * - Copy*.py
+numpy_array1.ipynb
+numpy_array2.ipynb
+numpy_array_memfile.py

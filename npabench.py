@@ -82,13 +82,14 @@ def get_os_info():
 
 def elapsed(reset=True):
 	try:
-		return timer() - elapsed.last_timestamp
+		now = timer()
+		return now - elapsed.last_timestamp
 	except:
 		reset=True
 		return None
 	finally:
 		if reset:
-			elapsed.last_timestamp = timer()
+			elapsed.last_timestamp = now
 
 class StopWatch():
 	def __init__(self) -> None:
