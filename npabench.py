@@ -18,6 +18,7 @@ import argparse
 import traceback
 import matplotlib.pyplot as plt
 import matplotlib
+import matplotlib.ticker
 import cpuinfo
 import re
 import webbrowser
@@ -29,6 +30,9 @@ import psutil
 import distro
 import platform
 import html
+import struct
+from typing import Callable
+import numpy.typing as npt
 
 def get_powershell_output_object(cmd):
 	result = subprocess.run(['powershell.exe', '-NonInteractive', '-NoProfile',  '-Command', cmd], capture_output=True) # Assuming not needed: '-ExecutionPolicy', 'Unrestricted'
@@ -81,8 +85,8 @@ def get_os_info():
 	return ret
 
 def elapsed(reset=True):
+	now = timer()
 	try:
-		now = timer()
 		return now - elapsed.last_timestamp
 	except:
 		reset=True
@@ -129,7 +133,7 @@ def print_on_same_line(*objects,sep=' ',file=sys.stdout):
 	print(print_on_same_line.writer.get_and_reset(), end='\r', flush=True, file=file)
 
 
-def profile_write(fmt,arr):
+def profile_write(fmt, arr):
 	gc.disable()
 	elapsed()
 	format_rw[fmt][1](arr)
@@ -137,12 +141,14 @@ def profile_write(fmt,arr):
 	gc.enable()
 	return e
 
-def profile_read(fmt):
+def profile_read(fmt, arr=None):
 	gc.disable()
 	elapsed()
-	format_rw[fmt][2]()
+	a=format_rw[fmt][2]()
 	e = elapsed()
 	gc.enable()
+	if arr is not None:
+		assert np.array_equal(a,arr)
 	return e
 
 
@@ -157,7 +163,7 @@ def hdf5_w(fpath,a):
 		f.create_dataset('data',data=a)
 def hdf5_r(fpath):
 	with h5py.File(fpath, "r") as f:
-		return f["data"][()]	
+		return f["data"][()]  # type: ignore
 def pytables_w(fpath,a):
 	with tables.open_file(fpath, 'w') as f:
 		gcolumns = f.create_group(f.root, 'columns', 'data')
@@ -165,6 +171,26 @@ def pytables_w(fpath,a):
 def pytables_r(fpath):
 	with tables.open_file(fpath, 'r') as f:
 		return f.root.columns.data[()]
+
+# from https://github.com/divideconcept/fastnumpyio/blob/main/fastnumpyio.py
+def fast_numpy_save(array):
+	size=len(array.shape)
+	if size>255:
+		raise ValueError('Dimensions greater than 255 are not supported')
+	return bytes(array.dtype.byteorder.replace('=','<' if sys.byteorder == 'little' else '>')+ 
+				array.dtype.kind,
+				'utf-8')+ \
+			array.dtype.itemsize.to_bytes(1,byteorder='little')+ \
+			struct.pack(f'<B{size}Q',size,*array.shape)+ \
+			array.tobytes()
+
+def fast_numpy_load(data):
+	dtype = str(data[:2],'utf-8')
+	dtype += str(data[2])
+	size = data[3]
+	shape = struct.unpack_from(f'<{size}Q', data, 4)
+	return np.ndarray(shape, dtype=dtype, buffer=data[4+size*8:])
+
 
 fpath = '' # to be set outside
 
@@ -177,6 +203,7 @@ format_rw = {
 	'zarr_zip': ('.zip',lambda a: zarr.save_array(fpath,a), lambda: zarr.load(fpath)), # there's zip and zarr; need to say zip
 	'zarr': ('.zarr',lambda a: zarr.save_array(fpath,a), lambda: zarr.load(fpath)), # there's zip and zarr; need to say zarr (which gets stored as a directory)
 	'pytables': ('.h5',lambda a: pytables_w(fpath,a), lambda: pytables_r(fpath)), # give it .h5 extension (optional)
+	'fast_np': ('.fnp',lambda a: open(fpath,'wb').write(fast_numpy_save(a)), lambda: fast_numpy_load(open(fpath,'rb').read())), # give it .fnp extension (optional)
 }		
 
 def get_outlier_mask(a, axis=-1, thresh=2.0):
@@ -228,8 +255,8 @@ def summary_plot_io_time(accum, data_dist, wr_rd, title):
 	ax1.loglog(x,y)
 	relabel_size_axis(ax1, max_pwr=max_pwr)
 	relabel_time_axis(ax1)
-	ax1.set_xlim([1,2**max_pwr])
-	ax1.set_ylim([y[0,:].min(), y[max_pwr,:].max()])
+	ax1.set_xlim(left=1, right=2**max_pwr)
+	ax1.set_ylim(bottom=y[0,:].min(), top=y[max_pwr,:].max())
 	#xaxis/yaxis.set_minor_formatter(matplotlib.ticker.NullFormatter()) unlikely needed
 	ax1.xaxis.set_minor_locator(matplotlib.ticker.NullLocator())
 	ax1.yaxis.set_minor_locator(matplotlib.ticker.NullLocator())
@@ -241,8 +268,8 @@ def summary_plot_io_time(accum, data_dist, wr_rd, title):
 		ax.loglog(x,y)
 		relabel_size_axis(ax, max_pwr=max_pwr)
 		relabel_time_axis(ax, yres=yres)
-		ax.set_xlim([2**a,2**b])
-		ax.set_ylim([min(y_min[a],y_min[b]), max(y_max[a],y_max[b])])
+		ax.set_xlim(left=2**a, right=2**b)
+		ax.set_ylim(bottom=min(y_min[a],y_min[b]), top=max(y_max[a],y_max[b]))
 		ax.xaxis.set_minor_locator(matplotlib.ticker.NullLocator())
 		ax.yaxis.set_minor_locator(matplotlib.ticker.NullLocator())
 		if y_no_outliers[a:b+1,:].mask.any():
@@ -288,7 +315,7 @@ def summary_plot_io_rate(accum):
 	ax1.loglog(x,x/y1/1024/1024/1024)
 	ax1.set_yscale('linear')
 	relabel_size_axis(ax1, max_pwr=max_pwr, start_pwr=start_pwr)
-	ax1.set_xlim([2**start_pwr,2**max_pwr])
+	ax1.set_xlim(left=2**start_pwr, right=2**max_pwr)
 	ax1.xaxis.set_minor_locator(matplotlib.ticker.NullLocator())
 	ax1.grid(axis='y')
 	ax1.set_ylabel('GB/Sec',loc='top')
@@ -300,7 +327,7 @@ def summary_plot_io_rate(accum):
 	ax2.loglog(x,x/y2/1024/1024/1024)
 	ax2.set_yscale('linear')
 	relabel_size_axis(ax2, max_pwr=max_pwr, start_pwr=start_pwr)
-	ax2.set_xlim([2**start_pwr,2**max_pwr])
+	ax2.set_xlim(left=2**start_pwr, right=2**max_pwr)
 	ax2.xaxis.set_minor_locator(matplotlib.ticker.NullLocator())
 	#ax2.set_yticks(np.arange(0,5.5,.5))
 	ax2.grid(axis='y')
@@ -330,7 +357,7 @@ def summary_plot_file_size(file_size):
 	ax1.loglog(x,x/y1)
 	ax1.set_yscale('linear')
 	relabel_size_axis(ax1, max_pwr)
-	ax1.set_xlim([1,2**max_pwr])
+	ax1.set_xlim(left=1, right=2**max_pwr)
 	ax1.grid(axis='y')
 	ax1.set_ylabel('Compression Ratio',loc='top')
 	ax1.legend(list(format_rw.keys()))
@@ -340,7 +367,7 @@ def summary_plot_file_size(file_size):
 	ax2.loglog(x,x/y2)
 	ax2.set_yscale('linear')
 	relabel_size_axis(ax2, max_pwr)
-	ax2.set_xlim([1,2**max_pwr])
+	ax2.set_xlim(left=1, right=2**max_pwr)
 	ax2.grid(axis='y')
 	ax2.set_xlabel('Size',loc='right')
 	ax2.set_title(r'80% sparse random numbers')
@@ -352,7 +379,7 @@ def summary_plot_file_size(file_size):
 def get_lib_version_info():
 	return {
 		'numpy' : f'{np.version.version}',
-		'pickle' : f'{pickle.format_version}',
+		'pickle' : f'{pickle.format_version}',  # type: ignore
 		'h5py' : f'{h5py.version.version} (using hdf5 version: {h5py.version.hdf5_version})',
 		'tables' : f'{tables.get_pytables_version()} (using hdf5 version: {tables.hdf5_version})',
 		'zarr' : f'{zarr.__version__}'
@@ -431,12 +458,13 @@ class Progress():
 		if self._method not in ['ema_rem', 'ema_past_rem']:
 			raise ValueError(f'Unrecognized method: {self._method}.')
 		
-	def _time_stream(): # class function
+	@staticmethod
+	def _time_stream(): 
 		stopwatch=StopWatch()
 		while True:
 			yield stopwatch.elapsed(reset=False)
 
-	def register_progress(self, report_consumer=lambda _:None):
+	def register_progress(self, report_consumer : Callable=lambda _:None):
 		self._update()
 		if self._step_sw.elapsed(reset=False) > self._reporting_interval: #update interval
 			self._step_sw.elapsed() # reset	
@@ -444,6 +472,7 @@ class Progress():
 
 	@property
 	def _progress_str(self):
+		assert self._t_remaining_smooth is not None # must call _update first (this also avoid pylance warning)
 		return (f'{self._progress_value:7.2%}'
 				f'\t\tElapsed: {dt.timedelta(seconds=round(self._t_elapsed))}'
 				f'\tRemaining: {dt.timedelta(seconds=round(self._t_remaining_smooth))}'
@@ -479,7 +508,7 @@ def size_str_to_pwr(s):
 		raise ValueError(f'Size needs to be something like 32MB, 1gb, 256KB, 2048B. A power of two number followed by a unit. Given input was "{s}".')
 	num_part = int(match.group(1))
 	if not is_power_of_two(num_part):
-		raise ValueError(f'The numbers needs to be a power of 2. Given input was {s}.')
+		raise ValueError(f'The numbers needs to be a power of 2. Given input was {s} with number={num_part}.')
 	unit_pwr = {'B':0, 'KB':10, 'MB':20, 'GB':30, 'TB':40, 'PB':50}[match.group(2)] # will for sure match due to regex
 
 	return unit_pwr + num_part.bit_length()-1
@@ -581,12 +610,12 @@ if __name__ == '__main__':
 			#MAX_PWR=34
 			MAX_PWR = size_str_to_pwr(args.max_size)
 
-			MAX_SIZE = 2**MAX_PWR
+			MAX_SIZE : int = 2**MAX_PWR
 
 			print(f'Will benchmark numpy arrays with size up to {pwr_to_size_str(MAX_PWR)}.\n')
 			print('Preparing arrays...')
 			dtype = np.float32
-			uni=np.random.default_rng().random(MAX_SIZE//dtype().itemsize, dtype=dtype)
+			uni : npt.NDArray[dtype] = np.random.default_rng().random(size=MAX_SIZE//dtype().itemsize, dtype=dtype)
 			arrays={
 				'uniform': uni,
 				'sparse': uni*(uni<.2)*4 # 80% sparse, rescale back to [0,1)
@@ -628,17 +657,19 @@ if __name__ == '__main__':
 			file_size = np.full((len(arrays), MAX_PWR+1, len(format_rw)),np.nan)
 			for ddist,arr in enumerate(arrays.values()):
 				for size_pwr in range(MAX_PWR+1): # 1 byte to 4GB or whatever
+					sized_arr = arr[:2**size_pwr//dtype().itemsize]
 					total_reps = calc_reps(size_pwr)	
 #					print(ddist,size_pwr,total_reps)
 					for j,fmt in enumerate(format_rw.keys()):
 						fpath=get_fpath(fmt) # reuse the same file path for each format
 						for rep in range(total_reps): # some reasonable reps
-							accum[ddist,size_pwr,j,0,rep] = profile_write(fmt,arr[:2**size_pwr//dtype().itemsize])
+							
+							accum[ddist,size_pwr,j,0,rep] = profile_write(fmt, sized_arr)
 							progress.register_progress(report_consumer=print_on_same_line)
 
 							file_size[ddist,size_pwr,j] = file_or_dir_size(fpath)
 
-							accum[ddist,size_pwr,j,1,rep] = profile_read(fmt)
+							accum[ddist,size_pwr,j,1,rep] = profile_read(fmt, sized_arr if rep==0 else None) # validate only on first read
 							progress.register_progress(report_consumer=print_on_same_line)
 
 			print_on_same_line()
@@ -690,7 +721,7 @@ if __name__ == '__main__':
 
 		def fig_to_html_str(fig):
 			img = BytesIO()
-			fig.savefig(img, format='png', bbox_inches='tight')
+			fig.savefig(img, format='png', bbox_inches='tight', dpi=72.0)
 			img.seek(0)
 			s = base64.b64encode(img.getvalue()).decode('utf-8')
 			html_str = f'<img src="data:image/png;base64, {s}">'
@@ -724,7 +755,7 @@ if __name__ == '__main__':
 				for i,fig in enumerate(figs):
 					png_filename = f'{out_fileprefix}_{i+1}.png'
 					html_str += f'<img src="{png_filename}"/>\n'
-					fig.savefig(os.path.join(root,png_filename))
+					fig.savefig(os.path.join(root,png_filename), dpi=72.0)
 				html_str += html_run_info_str(libinfo,sysinfo,cmd_str)
 
 			print(f'Saving report to {out_filepath}.')
