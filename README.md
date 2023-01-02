@@ -52,7 +52,7 @@ python npabench.py --max-size 16mb
 
 ## Benchmark Result:
 
-https://omasoud.github.io/npabench/npabench_result.html
+https://omasoud.github.io/np-array-io-bench
 
 
 Copyright (c) 2022 O. Masoud
