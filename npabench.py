@@ -1,4 +1,4 @@
-# Copyright (c) 2022 O. Masoud
+# Copyright (c) 2023 O. Masoud
 
 import os
 import sys
@@ -570,6 +570,18 @@ def display_html_in_tab(s, append_headers=True):
 	webbrowser.open(url)
 
 
+def cleanup_temp_files(fpath_cache):
+	if fpath_cache:
+		print('Cleaning up...')
+	for fpath in fpath_cache.values():
+		po=Path(fpath)
+		if po.is_dir(): # one of the zarr formats is a directory
+			shutil.rmtree(po) # maybe replace with po.rmtree() after python 3.10
+		elif po.is_file(): # file
+			po.unlink()
+		else: 
+			print(f'Warning: Expected {fpath} to be present during cleanup, but it was not found.')	
+
 if __name__ == '__main__':
 
 	print('Numpy Array File I/O Benchmark. By O. Masoud.\n')
@@ -595,6 +607,7 @@ if __name__ == '__main__':
 	if args.standalone_html and args.save_html_file is None:
 		parser.error('Expecting --save-html-file when using --standalone-html')
 
+	fpath_cache = {}
 	try:
 		if not args.summarize_file:
 			time_str = dt.datetime.now().strftime('%Y_%m_%d__%H_%M_%S')
@@ -625,9 +638,12 @@ if __name__ == '__main__':
 				po=Path(p)
 				if po.is_dir():
 					return sum(p.stat().st_size for p in po.rglob('*'))
-				return po.stat().st_size
-
-			fpath_cache = {}
+				elif po.is_file():
+					return po.stat().st_size
+				else:
+					print(f'Warning: {p} is not an existing file or directory. Returning 1 for size query.')
+					return 1
+			
 			def get_fpath(fmt):
 				if fmt not in fpath_cache:
 					with tempfile.NamedTemporaryFile('wb', suffix=format_rw[fmt][0]) as f:
@@ -684,13 +700,7 @@ if __name__ == '__main__':
 
 
 			# Delete temps 
-			print('Cleaning up...')
-			for fpath in fpath_cache.values():
-				po=Path(fpath)
-				if po.is_dir(): # one of the zarr formats is a directory
-					shutil.rmtree(po) # maybe replace with po.rmtree() after python 3.10
-				else: # file
-					po.unlink()
+			cleanup_temp_files(fpath_cache)
 
 		else: # summarize
 			result_filepath = args.summarize_file
@@ -776,9 +786,13 @@ if __name__ == '__main__':
 		print('\nCannot proceed due to the following:')
 		print(e)
 
+		cleanup_temp_files(fpath_cache)
+
 	except Exception as e:
 		print('\nUnexpected error. Please report to author:')
 		print(e)
+
+		cleanup_temp_files(fpath_cache)
 
 		print()
 		print('-----TRACEBACK------')
