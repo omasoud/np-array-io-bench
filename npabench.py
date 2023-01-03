@@ -44,10 +44,12 @@ def get_powershell_output_object(cmd):
 		return None
 	return json.loads(out)
 
-def get_disk_info():
+def get_disk_info(temp_dir=None):
+	# temp_dir if provided overrides default temp dir
+
 	ret = 'No disk info'
 
-	with tempfile.NamedTemporaryFile('wb') as f:
+	with tempfile.NamedTemporaryFile('wb', dir=temp_dir) as f:
 		filepath = f.name # we just need a name; file will be deleted
 
 	drive = os.path.splitdrive(filepath)[0]
@@ -116,7 +118,7 @@ def print_on_same_line(*objects,sep=' ',file=sys.stdout):
 			#print(f'received "{string}", {[ord(c) for c in string]}')
 			self.string+=string
 		def get_and_reset(self):
-			string_length=len(self.string)
+			string_length=len(self.string.expandtabs())
 			erase_padding=''
 			if self.previous_string_length>string_length:
 				erase_padding=' '*(self.previous_string_length-string_length)
@@ -387,10 +389,10 @@ def get_lib_version_info():
 
 
 @functools.lru_cache(maxsize=1) # no need to repopulate
-def get_sys_info():
+def get_sys_info(temp_dir=None):
 	return {
 		'Processor' : cpuinfo.get_cpu_info()['brand_raw'],
-		'Disk' : get_disk_info(),
+		'Disk' : get_disk_info(temp_dir=temp_dir),
 		'Memory' : pwr_to_size_str(round(np.log2(psutil.virtual_memory().total))),
 		'OS' : get_os_info()
 	}
@@ -499,6 +501,14 @@ class Progress():
 		self._t_remaining_smooth = (1-alpha)*self._t_remaining_smooth + alpha*t_remaining
 
 
+# This is how powershell does it
+def format_size(size):
+	postfixes = ( 'B', 'KB', 'MB', 'GB', 'TB', 'PB' )
+	i = 0
+	while size >= 1024 and i < len(postfixes):
+		size = size / 1024
+		i += 1
+	return f'{round(size,ndigits=2)} {postfixes[i]}'
 
 def size_str_to_pwr(s):
 	def is_power_of_two(n):
@@ -558,29 +568,40 @@ Copyright (c) 2022 O. Masoud
 '''	
 	return HTML_PRE+s+HTML_POST
 
-def display_html_in_tab(s, append_headers=True):
+def display_html_in_tab(s, append_headers=True, temp_dir=None):
+	# temp_dir if provided overrides default temp dir
+
 	if append_headers:
 		html_str=add_html_header(s)
 	else:
 		html_str=s
 
-	with tempfile.NamedTemporaryFile('w', delete=False, suffix='.html', encoding='utf-8') as f:
+	with tempfile.NamedTemporaryFile('w', delete=False, suffix='.html', encoding='utf-8', dir=temp_dir) as f:
 		url = 'file://' + f.name
 		f.write(html_str)
 	webbrowser.open(url)
 
 
+def delete_file_or_dir(target_path):
+	po=Path(target_path)
+	if po.is_dir(): # one of the zarr formats is a directory
+		shutil.rmtree(po) # maybe replace with po.rmtree() after python 3.10
+	elif po.is_file(): # file
+		po.unlink()
+	else:
+		raise ValueError(f'Expected {target_path} to be an existing file or directory, but was not found.')
+
 def cleanup_temp_files(fpath_cache):
-	if fpath_cache:
-		print('Cleaning up...')
-	for fpath in fpath_cache.values():
-		po=Path(fpath)
-		if po.is_dir(): # one of the zarr formats is a directory
-			shutil.rmtree(po) # maybe replace with po.rmtree() after python 3.10
-		elif po.is_file(): # file
-			po.unlink()
-		else: 
-			print(f'Warning: Expected {fpath} to be present during cleanup, but it was not found.')	
+	count_deleted=0
+	for target_path in fpath_cache.values():
+		try:
+			delete_file_or_dir(target_path)
+			count_deleted+=1
+		except ValueError as e:
+			pass
+	if count_deleted>0:
+		print(f'Cleaned up {count_deleted} files/directories. In normal operation, this is '
+				'unexcpected as clean up would have already happened.')
 
 if __name__ == '__main__':
 
@@ -596,6 +617,9 @@ if __name__ == '__main__':
 					help='Maximum file size (must be a power of 2) to benchmark (e.g, 8MB, 4GB, 128KB). Default: 1MB. ' 
 					'Caution: large sizes can take a very long time or run out of memory or disk space. 16GB '
 					'takes about 90 minutes on a fast computer.')
+	parser.add_argument('--temp-dir', action='store', metavar='DIR', help='The default system temp directory is normally used. '
+					'But if desired, provide a different directory to use for the temporary files. This can be helpful to remove '
+					'the physical disk I/O by using for example a directory on a ram disk or mounted on tmpfs on linux.')
 	parser.add_argument('--no-browser', action='store_true', help='Do not launch a browser tab to display the results.')
 	parser.add_argument('--save-html-file', action='store', metavar='FILE',  help='If desired, provide filename so that html report gets saved to it.')
 	parser.add_argument('--standalone-html', action='store_true', 
@@ -615,7 +639,7 @@ if __name__ == '__main__':
 			print(f'Results will be written to: {result_filepath}\n')
 			libinfo = get_lib_version_info()
 			print(pretty_lib_version_info_str(libinfo))
-			sysinfo = get_sys_info()
+			sysinfo = get_sys_info(args.temp_dir)
 			print(pretty_sys_info_str(sysinfo))
 			cmd_str = ' '.join([os.path.basename(sys.argv[0])]+sys.argv[1:])
 
@@ -633,6 +657,7 @@ if __name__ == '__main__':
 				'uniform': uni,
 				'sparse': uni*(uni<.2)*4 # 80% sparse, rescale back to [0,1)
 			}
+			print(f'Memory usage: {format_size(sum(a.nbytes for a in arrays.values()))}\n')
 
 			def file_or_dir_size(p):
 				po=Path(p)
@@ -644,9 +669,10 @@ if __name__ == '__main__':
 					print(f'Warning: {p} is not an existing file or directory. Returning 1 for size query.')
 					return 1
 			
-			def get_fpath(fmt):
+			def get_fpath(fmt, temp_dir=None):
+				# temp_dir if provided overrides default temp dir
 				if fmt not in fpath_cache:
-					with tempfile.NamedTemporaryFile('wb', suffix=format_rw[fmt][0]) as f:
+					with tempfile.NamedTemporaryFile('wb', suffix=format_rw[fmt][0], dir=temp_dir) as f:
 						fpath_cache[fmt]=f.name
 				return fpath_cache[fmt]
 
@@ -677,7 +703,7 @@ if __name__ == '__main__':
 					total_reps = calc_reps(size_pwr)	
 #					print(ddist,size_pwr,total_reps)
 					for j,fmt in enumerate(format_rw.keys()):
-						fpath=get_fpath(fmt) # reuse the same file path for each format
+						fpath=get_fpath(fmt, args.temp_dir) # reuse the same file path for each format
 						for rep in range(total_reps): # some reasonable reps
 							
 							accum[ddist,size_pwr,j,0,rep] = profile_write(fmt, sized_arr)
@@ -687,6 +713,12 @@ if __name__ == '__main__':
 
 							accum[ddist,size_pwr,j,1,rep] = profile_read(fmt, sized_arr if rep==0 else None) # validate only on first read
 							progress.register_progress(report_consumer=print_on_same_line)
+
+						try:
+							delete_file_or_dir(fpath) # to keep files from accumulating
+						except PermissionError: # zarr_zip format seems to refuse to allow deletion here
+							pass
+							#print(f'Warning: failed to delete {fpath}.')
 
 			print_on_same_line()
 
@@ -754,7 +786,7 @@ if __name__ == '__main__':
 
 		if not args.no_browser:
 			print('Showing results in browser tab...')
-			display_html_in_tab(html_str,append_headers=True)
+			display_html_in_tab(html_str, append_headers=True, temp_dir=args.temp_dir)
 			
 		if args.save_html_file is not None:
 			root, f = os.path.split(args.save_html_file)
